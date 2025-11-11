@@ -40,10 +40,19 @@ class GoveeH6199:
         payload = bytes(data[2:-1])
 
         self._log.debug(
-            f"recv: {as_hex_string(data)} (cmd={cmd:02x} group={group:02x})"
-        )
-        if waiting := self._pending_commands.get((cmd, group)):
-            waiting.set_result(payload)
+                f"recv: {as_hex_string(data)} (cmd={cmd:02x} group={group:02x})"
+           )
+        # Pop the waiter so a duplicate notification won't try to complete it again.
+        waiting = self._pending_commands.pop((cmd, group), None)
+        if waiting is None:
+                return  # stray/late notify; nothing pending for this (cmd, group)
+        try:
+                # Complete only if still pending.
+            if not waiting.cancelled() and not waiting.done():
+                    waiting.set_result(payload)
+        except asyncio.InvalidStateError:
+            # Already completed/cancelled elsewhere; ignore duplicate/late notify.
+            pass
 
     def _cs(self, data: bytes):
         checksum = 0
